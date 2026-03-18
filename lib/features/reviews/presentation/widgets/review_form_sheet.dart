@@ -34,11 +34,15 @@ class _ReviewFormSheetState extends ConsumerState<ReviewFormSheet> {
     super.dispose();
   }
 
+  bool _isSubmitting = false;
+
   Future<void> _submit() async {
     final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) {
       return;
     }
+
+    setState(() => _isSubmitting = true);
 
     await ref
         .read(reviewSubmissionControllerProvider.notifier)
@@ -50,30 +54,25 @@ class _ReviewFormSheetState extends ConsumerState<ReviewFormSheet> {
             reviewText: _reviewController.text.trim(),
           ),
         );
+
+    if (!mounted) return;
+
+    final state = ref.read(reviewSubmissionControllerProvider);
+    state.whenOrNull(
+      data: (_) => Navigator.of(context).pop(true),
+      error: (error, _) {
+        setState(() => _isSubmitting = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Review failed: $error')));
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<AsyncValue<void>>(reviewSubmissionControllerProvider, (
-      previous,
-      next,
-    ) {
-      next.whenOrNull(
-        data: (_) {
-          if (previous?.isLoading ?? false) {
-            Navigator.of(context).pop(true);
-          }
-        },
-        error: (error, _) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Review failed: $error')));
-        },
-      );
-    });
-
     final theme = Theme.of(context);
-    final isSubmitting = ref.watch(reviewSubmissionControllerProvider).isLoading;
+    final isSubmitting = _isSubmitting;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -208,14 +207,14 @@ class _CloseButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       onTap: onPressed,
       child: Container(
-        width: 40,
-        height: 40,
+        width: 48,
+        height: 48,
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.92),
           shape: BoxShape.circle,
           border: Border.all(color: Colors.black),
         ),
-        child: const Icon(Icons.close, size: 18, color: Colors.black),
+        child: const Icon(Icons.close, size: 20, color: Colors.black),
       ),
     );
   }

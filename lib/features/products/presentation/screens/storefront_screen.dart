@@ -73,6 +73,8 @@ class StorefrontScreen extends ConsumerWidget {
                 for (final product in products) product.id: product,
               };
 
+              final scaffoldContext = context;
+
               return LayoutBuilder(
                 builder: (context, constraints) {
                   final isDesktop = constraints.maxWidth >= 960;
@@ -80,19 +82,19 @@ class StorefrontScreen extends ConsumerWidget {
 
                   Future<void> openBag() async {
                     final result = await _openCartSheet(
-                      context,
+                      scaffoldContext,
                       productsById,
                       isDesktop: isDesktop,
                     );
 
-                    if (result == true && context.mounted) {
-                      _showSuccessDialog(context);
+                    if (result == true && scaffoldContext.mounted) {
+                      _showSuccessDialog(scaffoldContext);
                     }
                   }
 
                   Future<void> openReviewForm() async {
                     await _openReviewSheet(
-                      context,
+                      scaffoldContext,
                       selectedProduct,
                       isDesktop: isDesktop,
                     );
@@ -139,9 +141,9 @@ class StorefrontScreen extends ConsumerWidget {
                                       quantity: quantity,
                                     );
 
-                                if (context.mounted) {
+                                if (scaffoldContext.mounted) {
                                   final messenger = ScaffoldMessenger.of(
-                                    context,
+                                    scaffoldContext,
                                   );
                                   messenger
                                     ..hideCurrentSnackBar()
@@ -200,8 +202,33 @@ class StorefrontScreen extends ConsumerWidget {
                                                 child: Text(
                                                   '${selectedProduct.name} added to your bag.',
                                                   style: Theme.of(
-                                                    context,
+                                                    scaffoldContext,
                                                   ).textTheme.titleMedium,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              TextButton(
+                                                onPressed: () {
+                                                  messenger
+                                                      .hideCurrentSnackBar();
+                                                  openBag();
+                                                },
+                                                style: TextButton.styleFrom(
+                                                  foregroundColor: Colors.black,
+                                                  padding:
+                                                      const EdgeInsets
+                                                          .symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 8,
+                                                  ),
+                                                ),
+                                                child: const Text(
+                                                  'View Bag',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    decoration: TextDecoration
+                                                        .underline,
+                                                  ),
                                                 ),
                                               ),
                                             ],

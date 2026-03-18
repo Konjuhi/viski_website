@@ -25,10 +25,14 @@ class FeatureHighlightCard extends StatelessWidget {
         children: [
           Text(title, style: theme.textTheme.titleLarge),
           const SizedBox(height: 8),
-          Text(
-            description,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+          Flexible(
+            child: Text(
+              description,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 3,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
         ],

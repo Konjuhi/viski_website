@@ -32,16 +32,24 @@ class CartSheet extends ConsumerWidget {
           if (items.isEmpty) {
             return Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 44),
+              padding: EdgeInsets.fromLTRB(24, isDesktop ? 24 : 0, 24, 44),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Align(
-                    alignment: Alignment.topRight,
-                    child: _CloseButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Your bag',
+                          style: theme.textTheme.headlineMedium,
+                        ),
+                      ),
+                      _CloseButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 24),
                   Text(
                     'Your bag is empty',
                     textAlign: TextAlign.center,
@@ -225,14 +233,14 @@ class _CloseButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       onTap: onPressed,
       child: Container(
-        width: 40,
-        height: 40,
+        width: 48,
+        height: 48,
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.8),
           shape: BoxShape.circle,
           border: Border.all(color: Colors.black),
         ),
-        child: const Icon(Icons.close, size: 18, color: Colors.black),
+        child: const Icon(Icons.close, size: 20, color: Colors.black),
       ),
     );
   }

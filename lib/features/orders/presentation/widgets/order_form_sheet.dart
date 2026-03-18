@@ -266,14 +266,14 @@ class _CloseButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       onTap: onPressed,
       child: Container(
-        width: 40,
-        height: 40,
+        width: 48,
+        height: 48,
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.92),
           shape: BoxShape.circle,
           border: Border.all(color: Colors.black),
         ),
-        child: const Icon(Icons.close, size: 18, color: Colors.black),
+        child: const Icon(Icons.close, size: 20, color: Colors.black),
       ),
     );
   }
