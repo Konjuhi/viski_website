@@ -1,48 +1,97 @@
 # SwiftShop
 
- SwiftShop is a responsive Flutter Web + Mobile storefront backed by Supabase. It fetches products from the `products` table, keeps a per-device bag locally in the app, and writes confirmed checkouts into `orders` and `order_items` in Supabase for phone confirmation.
+A responsive web storefront for ordering products online, built with **Jaspr** and **Supabase**. Customers can browse products, manage their bag, and place orders — the owner receives the details and follows up by phone to confirm.
+
+🌐 **Live site:** [https://konjuhi.github.io/viski_website/](https://konjuhi.github.io/viski_website/)
+
+---
 
 ## Stack
 
-- Flutter
-- Supabase
-- Riverpod
-- Clean Architecture inspired folder split
+| Layer | Technology |
+|---|---|
+| UI framework | [Jaspr](https://docs.page/schultek/jaspr) — Dart web framework rendering real HTML |
+| Backend | [Supabase](https://supabase.com) — database, storage, real-time |
+| State management | Jaspr `StatefulComponent` + `setState` (no extra packages) |
+| Cart persistence | Browser `localStorage` via `dart:html` |
+| Deployment | GitHub Pages via GitHub Actions |
 
-## Run
+---
 
-1. For a fresh project, apply [supabase/schema.sql](supabase/schema.sql) in the Supabase SQL Editor.
-2. If you already created the old single-product `orders` table, run [supabase/cart_checkout_migration.sql](supabase/cart_checkout_migration.sql) instead.
-3. If you want a more admin-friendly Supabase experience, run [supabase/admin_panel_improvements.sql](supabase/admin_panel_improvements.sql) after the checkout schema is in place.
-4. If your existing project already has products and orders set up, run [supabase/reviews_setup.sql](supabase/reviews_setup.sql) to enable customer reviews.
-5. Add products in the Supabase dashboard, including public image URLs.
-6. Run the app with your project credentials:
+## Features
+
+- Browse products fetched live from Supabase
+- Add to bag, adjust quantities, remove items
+- Per-device bag stored in `localStorage` — no login required
+- Place an order with name, phone, and delivery address
+- Write and read customer reviews with star ratings
+- Owner manages everything from the Supabase dashboard
+
+---
+
+## Local development
+
+1. Apply the database schema in your Supabase SQL Editor:
+
+```
+supabase/schema.sql
+```
+
+2. Add your credentials to `lib/core/config/supabase_config.dart`:
+
+```dart
+class SupabaseConfig {
+  static const url = 'https://YOUR_PROJECT.supabase.co';
+  static const anonKey = 'YOUR_ANON_KEY';
+}
+```
+
+3. Run the app:
 
 ```bash
-flutter run \
-  --dart-define=SUPABASE_URL=https://YOUR_PROJECT.supabase.co \
-  --dart-define=SUPABASE_ANON_KEY=YOUR_ANON_KEY
+flutter run -d chrome
 ```
 
-## Structure
+---
 
-```text
+## Tests
+
+```bash
+dart test test/core/ test/features/
+```
+
+Covers domain model serialization, form validation rules, cart subtotal math, and currency formatting.
+
+---
+
+## Project structure
+
+```
 lib/
   core/
-  services/
-  repositories/
+    config/          # Supabase credentials
+    utils/           # formatPrice, form validators
+  services/          # SupabaseClient singleton
   features/
-    cart/
-    products/
-    orders/
-  presentation/
-  widgets/
+    products/        # Product model, repository, gallery, selector
+    cart/            # CartItem model, localStorage repository, cart sheet
+    orders/          # Order models, order form sheet
+    reviews/         # ProductReview model, review form sheet
+  widgets/           # BrandHeader, FeatureHighlightCard
+  app.dart           # Root Jaspr component
+  main.dart          # Entry point — runApp()
+web/
+  index.html
+  styles.css
+test/
+  core/
+  features/
 ```
+
+---
 
 ## Notes
 
-- Product ratings and review counts now come from the `product_reviews` table in Supabase.
-- The bag is stored locally with `shared_preferences`, so each browser/device sees only its own bag until checkout.
-- `order_details_view` and `order_summaries_view` are included to make the Supabase Table Editor easier for the owner to use.
-- Admin management happens directly inside the Supabase dashboard.
-- The repository boundaries are set up so categories, Stripe payments, accounts, and delivery tracking can be added without rewriting the UI layer.
+- Bag state is isolated per browser — each visitor sees only their own items.
+- Admin management (products, orders, reviews) happens directly in the Supabase dashboard.
+- The architecture is structured so categories, payments, and delivery tracking can be added later without rewriting the UI.
