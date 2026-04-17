@@ -31,13 +31,15 @@ jobs:
         run: dart pub get
 
       - name: Activate jaspr CLI
-        run: dart pub global activate jaspr_cli 0.22.4
+        run: |
+          dart pub global activate jaspr_cli 0.22.4
+          echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
 
       - name: Run tests
         run: dart test test/core/ test/features/
 
       - name: Build web app
-        run: dart pub global run jaspr_cli build
+        run: jaspr build
 
       - name: Set base href for GitHub Pages
         run: sed -i 's|<head>|<head><base href="/viski_website/">|' build/jaspr/index.html
