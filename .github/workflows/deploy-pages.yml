@@ -25,7 +25,7 @@ jobs:
       - name: Set up Dart
         uses: dart-lang/setup-dart@v1
         with:
-          sdk: stable
+          sdk: '3.9.2'
 
       - name: Get dependencies
         run: dart pub get
