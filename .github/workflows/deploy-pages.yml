@@ -25,24 +25,27 @@ jobs:
       - name: Set up Dart
         uses: dart-lang/setup-dart@v1
         with:
-          sdk: '3.9.2'
+          sdk: stable
 
       - name: Get dependencies
         run: dart pub get
 
-      - name: Activate jaspr CLI
-        run: |
-          dart pub global activate jaspr_cli 0.22.4
-          echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
-
       - name: Run tests
         run: dart test test/core/ test/features/
 
-      - name: Build web app
-        run: jaspr build
+      - name: Compile Dart to JS
+        run: |
+          mkdir -p build/web
+          dart compile js -O2 --output=build/web/main.dart.js lib/main.dart
 
-      - name: Set base href for GitHub Pages
-        run: sed -i 's|<head>|<head><base href="/viski_website/">|' build/jaspr/index.html
+      - name: Copy web assets
+        run: |
+          cp web/index.html build/web/
+          cp web/styles.css build/web/
+          cp web/favicon.png build/web/ 2>/dev/null || true
+          cp web/manifest.json build/web/ 2>/dev/null || true
+          cp -r web/icons build/web/ 2>/dev/null || true
+          sed -i 's|<head>|<head><base href="/viski_website/">|' build/web/index.html
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -50,7 +53,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: build/jaspr
+          path: build/web
 
   deploy:
     needs: build
