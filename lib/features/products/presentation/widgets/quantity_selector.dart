@@ -1,49 +1,32 @@
-import 'package:flutter/material.dart';
+import 'package:jaspr/jaspr.dart';
+import 'package:jaspr/dom.dart';
 
-class QuantitySelector extends StatelessWidget {
+class QuantitySelector extends StatelessComponent {
   const QuantitySelector({
     super.key,
     required this.quantity,
-    required this.onDecrement,
     required this.onIncrement,
+    required this.onDecrement,
   });
 
   final int quantity;
-  final VoidCallback onDecrement;
-  final VoidCallback onIncrement;
+  final void Function() onIncrement;
+  final void Function() onDecrement;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    Widget button(IconData icon, VoidCallback onPressed) {
-      return InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onPressed,
-        child: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: theme.colorScheme.outlineVariant),
-          ),
-          child: Icon(icon, size: 18),
-        ),
-      );
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        button(Icons.remove, onDecrement),
-        Container(
-          width: 52,
-          alignment: Alignment.center,
-          child: Text('$quantity', style: theme.textTheme.titleLarge),
-        ),
-        button(Icons.add, onIncrement),
-      ],
-    );
+  Component build(BuildContext context) {
+    return div([
+      button(
+        [Component.text('−')],
+        classes: 'qty-btn',
+        events: {'click': (_) => onDecrement()},
+      ),
+      span([Component.text('$quantity')], classes: 'qty-value'),
+      button(
+        [Component.text('+')],
+        classes: 'qty-btn',
+        events: {'click': (_) => onIncrement()},
+      ),
+    ], classes: 'quantity-selector');
   }
 }

@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+import 'package:jaspr/jaspr.dart';
+import 'package:jaspr/dom.dart';
 
-class FeatureHighlightCard extends StatelessWidget {
+class FeatureHighlightCard extends StatelessComponent {
   const FeatureHighlightCard({
     super.key,
     required this.title,
@@ -11,32 +12,10 @@ class FeatureHighlightCard extends StatelessWidget {
   final String description;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: theme.textTheme.titleLarge),
-          const SizedBox(height: 8),
-          Flexible(
-            child: Text(
-              description,
-              overflow: TextOverflow.ellipsis,
-              maxLines: 3,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  Component build(BuildContext context) {
+    return div([
+      p([Component.text(title)], classes: 'feature-card-title'),
+      p([Component.text(description)], classes: 'feature-card-desc'),
+    ], classes: 'feature-card');
   }
 }

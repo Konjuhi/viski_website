@@ -1,4 +1,4 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase/supabase.dart';
 
 import '../../../repositories/order_repository.dart';
 import '../domain/create_order_request.dart';

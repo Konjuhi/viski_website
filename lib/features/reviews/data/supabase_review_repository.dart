@@ -1,4 +1,4 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase/supabase.dart';
 
 import '../../../repositories/review_repository.dart';
 import '../domain/create_product_review_request.dart';

@@ -1,29 +1,39 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:jaspr/jaspr.dart';
+import 'package:jaspr/dom.dart';
 
 import '../../../../core/utils/currency_formatter.dart';
+import '../../../../repositories/cart_repository.dart';
+import '../../../../services/supabase_service.dart';
 import '../../../../widgets/brand_header.dart';
 import '../../../../widgets/feature_highlight_card.dart';
-import '../../../../widgets/storefront_modal_shell.dart';
-import '../../../cart/presentation/providers/cart_providers.dart';
+import '../../../cart/data/local_storage_cart_repository.dart';
+import '../../../cart/domain/cart_item.dart';
 import '../../../cart/presentation/widgets/cart_sheet.dart';
+import '../../../orders/presentation/widgets/order_form_sheet.dart';
+import '../../../reviews/data/supabase_review_repository.dart';
 import '../../../reviews/domain/product_review.dart';
-import '../../../reviews/presentation/providers/review_providers.dart';
 import '../../../reviews/presentation/widgets/product_reviews_section.dart';
 import '../../../reviews/presentation/widgets/review_form_sheet.dart';
+import '../../data/supabase_product_repository.dart';
 import '../../domain/product.dart';
-import '../providers/product_providers.dart';
 import '../widgets/product_image_gallery.dart';
 import '../widgets/product_selector_list.dart';
 import '../widgets/quantity_selector.dart';
 
-class StorefrontScreen extends ConsumerWidget {
+enum _Modal { none, cart, order, review, success }
+
+class StorefrontScreen extends StatefulComponent {
   const StorefrontScreen({super.key});
 
-  static const _featureItems = [
+  @override
+  State<StorefrontScreen> createState() => _StorefrontScreenState();
+}
+
+class _StorefrontScreenState extends State<StorefrontScreen> {
+  static const _features = [
     (
       'Phone Confirmation',
-      'When you place an order, the owner receives an SMS notification and will contact you as soon as possible to confirm it.',
+      'When you place an order, the owner receives an SMS notification and will contact you to confirm it.',
     ),
     (
       'Local Bag Privacy',
@@ -31,709 +41,289 @@ class StorefrontScreen extends ConsumerWidget {
     ),
     (
       'Ready For Growth',
-      'The app now separates products, bag state, and checkout so categories and payments can be added later.',
+      'The app separates products, bag state, and checkout so categories and payments can be added later.',
     ),
   ];
 
+  final _productRepo = SupabaseProductRepository(SupabaseService.client);
+  final CartRepository _cartRepo = LocalStorageCartRepository();
+
+  List<Product> _products = [];
+  List<CartItem> _cart = [];
+  List<ProductReview> _reviews = [];
+  String? _selectedProductId;
+  int _quantity = 1;
+  bool _loading = true;
+  String? _error;
+  _Modal _modal = _Modal.none;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final productsAsync = ref.watch(activeProductsProvider);
+  void initState() {
+    super.initState();
+    _loadAll();
+  }
 
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFFE7E0D3), Color(0xFFF5F2EB), Color(0xFFD8E0E5)],
+  Future<void> _loadAll() async {
+    try {
+      final products = await _productRepo.fetchActiveProducts();
+      final cart = await _cartRepo.loadCart();
+      setState(() {
+        _products = products;
+        _cart = cart;
+        _selectedProductId = products.isNotEmpty ? products.first.id : null;
+        _loading = false;
+      });
+      if (_selectedProductId != null) await _loadReviews(_selectedProductId!);
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _loadReviews(String productId) async {
+    try {
+      final repo = SupabaseReviewRepository(SupabaseService.client);
+      final reviews = await repo.fetchApprovedReviews(productId);
+      setState(() => _reviews = reviews);
+    } catch (_) {
+      setState(() => _reviews = []);
+    }
+  }
+
+  Product? get _selectedProduct =>
+      _products.where((p) => p.id == _selectedProductId).cast<Product?>().firstOrNull;
+
+  int get _cartCount => _cart.fold(0, (sum, item) => sum + item.quantity);
+
+  Map<String, Product> get _productsById => {for (final p in _products) p.id: p};
+
+  Future<void> _selectProduct(String id) async {
+    setState(() {
+      _selectedProductId = id;
+      _quantity = 1;
+      _reviews = [];
+    });
+    await _loadReviews(id);
+  }
+
+  Future<void> _addToCart() async {
+    final product = _selectedProduct;
+    if (product == null) return;
+    final existing = _cart.indexWhere((i) => i.productId == product.id);
+    final updated = List<CartItem>.from(_cart);
+    if (existing >= 0) {
+      updated[existing] =
+          CartItem(productId: product.id, quantity: updated[existing].quantity + _quantity);
+    } else {
+      updated.add(CartItem(productId: product.id, quantity: _quantity));
+    }
+    await _cartRepo.saveCart(updated);
+    setState(() {
+      _cart = updated;
+      _quantity = 1;
+    });
+  }
+
+  Future<void> _updateCartItem(String productId, int delta) async {
+    final updated = List<CartItem>.from(_cart);
+    final i = updated.indexWhere((item) => item.productId == productId);
+    if (i < 0) return;
+    final newQty = updated[i].quantity + delta;
+    if (newQty <= 0) {
+      updated.removeAt(i);
+    } else {
+      updated[i] = CartItem(productId: productId, quantity: newQty);
+    }
+    await _cartRepo.saveCart(updated);
+    setState(() => _cart = updated);
+  }
+
+  Future<void> _removeCartItem(String productId) async {
+    final updated = _cart.where((i) => i.productId != productId).toList();
+    await _cartRepo.saveCart(updated);
+    setState(() => _cart = updated);
+  }
+
+  Future<void> _clearCart() async {
+    await _cartRepo.saveCart([]);
+    setState(() => _cart = []);
+  }
+
+  @override
+  Component build(BuildContext context) {
+    if (_loading) {
+      return div([
+        div([
+          div([], classes: 'spinner'),
+          p([Component.text('Loading products…')]),
+        ], classes: 'loading-state'),
+      ], classes: 'storefront');
+    }
+
+    if (_error != null) {
+      return div([
+        div([
+          p([Component.text('Unable to load products')], classes: 'section-title'),
+          p([Component.text(_error!)], classes: 'product-description'),
+        ], classes: 'loading-state'),
+      ], classes: 'storefront');
+    }
+
+    if (_products.isEmpty) {
+      return div([
+        div([
+          p([Component.text('No products found')], classes: 'section-title'),
+          p(
+            [Component.text('Add rows to the products table and set active = true.')],
+            classes: 'product-description',
           ),
-        ),
-        child: SafeArea(
-          child: productsAsync.when(
-            data: (products) {
-              if (products.isEmpty) {
-                return const _CenteredState(
-                  title: 'No active products',
-                  message:
-                      'Add rows to the products table in Supabase and set active = true.',
-                );
-              }
+        ], classes: 'loading-state'),
+      ], classes: 'storefront');
+    }
 
-              final selectedProduct = ref.watch(selectedProductProvider);
-              if (selectedProduct == null) {
-                return const SizedBox.shrink();
-              }
+    final product = _selectedProduct;
 
-              final quantity = ref.watch(productQuantityProvider);
-              final cartCount = ref.watch(cartItemCountProvider);
-              final reviewsAsync = ref.watch(
-                productReviewsProvider(selectedProduct.id),
-              );
-              final productsById = {
-                for (final product in products) product.id: product,
-              };
+    return div([
+      BrandHeader(
+        cartCount: _cartCount,
+        onCartTap: () => setState(() => _modal = _Modal.cart),
+      ),
+      div([
+        if (product != null)
+          div([
+            ProductImageGallery(imageUrls: product.imageUrls),
+            _buildProductInfo(product),
+          ], classes: 'storefront-hero'),
+        if (_products.length > 1)
+          ProductSelectorList(
+            products: _products,
+            selectedProductId: _selectedProductId,
+            onSelect: _selectProduct,
+          ),
+        section([
+          div(
+            _features
+                .map((f) => FeatureHighlightCard(title: f.$1, description: f.$2))
+                .toList(),
+            classes: 'feature-cards-grid',
+          ),
+        ], classes: 'feature-cards-section'),
+        if (product != null)
+          ProductReviewsSection(
+            product: product,
+            reviews: _reviews,
+            onWriteReview: () => setState(() => _modal = _Modal.review),
+          ),
+      ], classes: 'storefront'),
+      if (_modal == _Modal.cart) _buildOverlay(CartSheet(
+        cart: _cart,
+        productsById: _productsById,
+        onIncrement: (id) => _updateCartItem(id, 1),
+        onDecrement: (id) => _updateCartItem(id, -1),
+        onRemove: _removeCartItem,
+        onCheckout: () => setState(() => _modal = _Modal.order),
+        onClose: () => setState(() => _modal = _Modal.none),
+      )),
+      if (_modal == _Modal.order) _buildOverlay(OrderFormSheet(
+        cart: _cart,
+        productsById: _productsById,
+        onClose: () => setState(() => _modal = _Modal.none),
+        onSuccess: () async {
+          await _clearCart();
+          setState(() => _modal = _Modal.success);
+        },
+      )),
+      if (_modal == _Modal.review && product != null)
+        _buildOverlay(ReviewFormSheet(
+          product: product,
+          onClose: () => setState(() => _modal = _Modal.none),
+          onSuccess: () async {
+            setState(() => _modal = _Modal.none);
+            await _loadReviews(product.id);
+          },
+        )),
+      if (_modal == _Modal.success) _buildSuccessModal(),
+    ], classes: 'app');
+  }
 
-              final scaffoldContext = context;
+  Component _buildProductInfo(Product product) {
+    final avg = _reviews.isNotEmpty
+        ? (_reviews.map((r) => r.rating).reduce((a, b) => a + b) / _reviews.length)
+            .toStringAsFixed(1)
+        : null;
 
-              return LayoutBuilder(
-                builder: (context, constraints) {
-                  final isDesktop = constraints.maxWidth >= 960;
-                  final sidePadding = isDesktop ? 40.0 : 20.0;
-
-                  Future<void> openBag() async {
-                    final result = await _openCartSheet(
-                      scaffoldContext,
-                      productsById,
-                      isDesktop: isDesktop,
-                    );
-
-                    if (result == true && scaffoldContext.mounted) {
-                      _showSuccessDialog(scaffoldContext);
-                    }
-                  }
-
-                  Future<void> openReviewForm() async {
-                    await _openReviewSheet(
-                      scaffoldContext,
-                      selectedProduct,
-                      isDesktop: isDesktop,
-                    );
-                  }
-
-                  return SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(
-                      sidePadding,
-                      24,
-                      sidePadding,
-                      32,
-                    ),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 1240),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            BrandHeader(
-                              cartCount: cartCount,
-                              onCartTap: openBag,
-                            ),
-                            const SizedBox(height: 28),
-                            _ProductHero(
-                              product: selectedProduct,
-                              reviewsAsync: reviewsAsync,
-                              quantity: quantity,
-                              isDesktop: isDesktop,
-                              onIncrement: () {
-                                ref
-                                    .read(productQuantityProvider.notifier)
-                                    .increment();
-                              },
-                              onDecrement: () {
-                                ref
-                                    .read(productQuantityProvider.notifier)
-                                    .decrement();
-                              },
-                              onAddToBag: () async {
-                                await ref
-                                    .read(cartControllerProvider.notifier)
-                                    .addItem(
-                                      productId: selectedProduct.id,
-                                      quantity: quantity,
-                                    );
-
-                                if (scaffoldContext.mounted) {
-                                  final messenger = ScaffoldMessenger.of(
-                                    scaffoldContext,
-                                  );
-                                  messenger
-                                    ..hideCurrentSnackBar()
-                                    ..showSnackBar(
-                                      SnackBar(
-                                        behavior: SnackBarBehavior.floating,
-                                        elevation: 0,
-                                        backgroundColor: Colors.transparent,
-                                        margin: EdgeInsets.fromLTRB(
-                                          24,
-                                          0,
-                                          24,
-                                          isDesktop ? 28 : 18,
-                                        ),
-                                        content: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 18,
-                                            vertical: 16,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white,
-                                            borderRadius: BorderRadius.circular(
-                                              20,
-                                            ),
-                                            border: Border.all(
-                                              color: const Color(0x1A000000),
-                                            ),
-                                            boxShadow: const [
-                                              BoxShadow(
-                                                color: Color(0x14000000),
-                                                blurRadius: 28,
-                                                offset: Offset(0, 14),
-                                              ),
-                                            ],
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Container(
-                                                width: 38,
-                                                height: 38,
-                                                decoration: BoxDecoration(
-                                                  color: const Color(
-                                                    0xFFF6F3EC,
-                                                  ),
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                                child: const Icon(
-                                                  Icons.check,
-                                                  size: 18,
-                                                  color: Colors.black,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 14),
-                                              Expanded(
-                                                child: Text(
-                                                  '${selectedProduct.name} added to your bag.',
-                                                  style: Theme.of(
-                                                    scaffoldContext,
-                                                  ).textTheme.titleMedium,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              TextButton(
-                                                onPressed: () {
-                                                  messenger
-                                                      .hideCurrentSnackBar();
-                                                  openBag();
-                                                },
-                                                style: TextButton.styleFrom(
-                                                  foregroundColor: Colors.black,
-                                                  padding:
-                                                      const EdgeInsets
-                                                          .symmetric(
-                                                    horizontal: 12,
-                                                    vertical: 8,
-                                                  ),
-                                                ),
-                                                child: const Text(
-                                                  'View Bag',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                    decoration: TextDecoration
-                                                        .underline,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                }
-                              },
-                              onViewBag: openBag,
-                              onWriteReview: openReviewForm,
-                            ),
-                            const SizedBox(height: 28),
-                            Text(
-                              'Browse products',
-                              style: Theme.of(context).textTheme.headlineMedium,
-                            ),
-                            const SizedBox(height: 16),
-                            ProductSelectorList(
-                              products: products,
-                              selectedProductId: selectedProduct.id,
-                              onProductSelected: (product) {
-                                ref
-                                    .read(selectedProductIdProvider.notifier)
-                                    .select(product.id);
-                                ref
-                                    .read(productQuantityProvider.notifier)
-                                    .reset();
-                              },
-                            ),
-                            const SizedBox(height: 28),
-                            GridView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: isDesktop ? 3 : 1,
-                                    crossAxisSpacing: 18,
-                                    mainAxisSpacing: 18,
-                                    mainAxisExtent: 150,
-                                  ),
-                              itemCount: _featureItems.length,
-                              itemBuilder: (context, index) {
-                                final item = _featureItems[index];
-                                return FeatureHighlightCard(
-                                  title: item.$1,
-                                  description: item.$2,
-                                );
-                              },
-                            ),
-                            const SizedBox(height: 28),
-                            ProductReviewsSection(
-                              product: selectedProduct,
-                              isDesktop: isDesktop,
-                              onWriteReview: openReviewForm,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              );
+    return div([
+      div([
+        span([Component.text('★')], classes: 'star-filled'),
+        span([
+          Component.text(avg != null
+              ? '$avg (${_reviews.length} review${_reviews.length == 1 ? '' : 's'})'
+              : 'No reviews yet'),
+        ]),
+      ], classes: 'stars', styles: Styles(raw: {'margin-bottom': '12px'})),
+      p([Component.text(product.name)], classes: 'product-name'),
+      p([Component.text(formatPrice(product.price))], classes: 'product-price'),
+      p([Component.text(product.description)], classes: 'product-description'),
+      QuantitySelector(
+        quantity: _quantity,
+        onIncrement: () => setState(() => _quantity++),
+        onDecrement: () =>
+            setState(() => _quantity = _quantity > 1 ? _quantity - 1 : 1),
+      ),
+      div([
+        button(
+          [Component.text('Add to Bag')],
+          classes: 'btn-primary',
+          events: {
+            'click': (_) async {
+              await _addToCart();
+              setState(() => _modal = _Modal.cart);
             },
-            loading: () => const _CenteredState(
-              title: 'Loading catalog',
-              message: 'Fetching products from Supabase.',
-              showLoader: true,
-            ),
-            error: (error, _) => _CenteredState(
-              title: 'Unable to load products',
-              message: '$error',
-            ),
-          ),
+          },
         ),
-      ),
+        button(
+          [Component.text('View Bag')],
+          classes: 'btn-secondary',
+          events: {'click': (_) => setState(() => _modal = _Modal.cart)},
+        ),
+        button(
+          [Component.text('Write a review')],
+          classes: 'btn-ghost',
+          events: {'click': (_) => setState(() => _modal = _Modal.review)},
+        ),
+      ], classes: 'action-buttons'),
+    ], classes: 'product-info');
+  }
+
+  Component _buildOverlay(Component child) {
+    return div(
+      [child],
+      classes: 'modal-overlay',
+      events: {'click': (_) => setState(() => _modal = _Modal.none)},
     );
   }
 
-  Future<bool?> _openCartSheet(
-    BuildContext context,
-    Map<String, Product> productsById, {
-    required bool isDesktop,
-  }) {
-    if (isDesktop) {
-      return showDialog<bool>(
-        context: context,
-        builder: (context) {
-          return StorefrontModalShell(
-            maxWidth: 640,
-            child: CartSheet(productsById: productsById, isDesktop: true),
-          );
-        },
-      );
-    }
-
-    return showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
-      builder: (context) {
-        return CartSheet(productsById: productsById, isDesktop: false);
-      },
-    );
-  }
-
-  Future<bool?> _openReviewSheet(
-    BuildContext context,
-    Product product, {
-    required bool isDesktop,
-  }) {
-    if (isDesktop) {
-      return showDialog<bool>(
-        context: context,
-        builder: (context) {
-          return StorefrontModalShell(
-            maxWidth: 560,
-            child: ReviewFormSheet(product: product),
-          );
-        },
-      );
-    }
-
-    return showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
-      builder: (context) {
-        return ReviewFormSheet(product: product);
-      },
-    );
-  }
-
-  void _showSuccessDialog(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        final theme = Theme.of(dialogContext);
-
-        return StorefrontModalShell(
-          maxWidth: 620,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(36, 36, 36, 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Order request sent',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.displaySmall?.copyWith(
-                    fontSize: 34,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  child: Text(
-                    'Your order request was submitted successfully. '
-                    'The business owner will contact you as soon as possible to confirm it.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w500,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 28),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () {
-                      Navigator.of(dialogContext).pop();
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.black,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    child: const Text('Close'),
-                  ),
-                ),
-              ],
-            ),
+  Component _buildSuccessModal() {
+    return div(
+      [
+        div([
+          p([Component.text('🎉')], classes: 'success-icon'),
+          p([Component.text('Order request sent!')], classes: 'success-title'),
+          p(
+            [Component.text('Your order was submitted. The owner will contact you to confirm.')],
+            classes: 'success-subtitle',
           ),
-        );
-      },
-    );
-  }
-}
-
-class _ProductHero extends StatelessWidget {
-  const _ProductHero({
-    required this.product,
-    required this.reviewsAsync,
-    required this.quantity,
-    required this.isDesktop,
-    required this.onIncrement,
-    required this.onDecrement,
-    required this.onAddToBag,
-    required this.onViewBag,
-    required this.onWriteReview,
-  });
-
-  final Product product;
-  final AsyncValue<List<ProductReview>> reviewsAsync;
-  final int quantity;
-  final bool isDesktop;
-  final VoidCallback onIncrement;
-  final VoidCallback onDecrement;
-  final VoidCallback onAddToBag;
-  final VoidCallback onViewBag;
-  final VoidCallback onWriteReview;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final infoPanel = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(999),
+          button(
+            [Component.text('Close')],
+            classes: 'btn-primary',
+            events: {'click': (_) => setState(() => _modal = _Modal.none)},
           ),
-          child: _ReviewPill(reviewsAsync: reviewsAsync),
-        ),
-        const SizedBox(height: 18),
-        Text(product.name, style: theme.textTheme.displaySmall),
-        const SizedBox(height: 10),
-        Text(
-          formatPrice(product.price),
-          style: theme.textTheme.headlineMedium,
-        ),
-        const SizedBox(height: 18),
-        Text(
-          product.description,
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 28),
-        Text('Quantity', style: theme.textTheme.titleMedium),
-        const SizedBox(height: 12),
-        QuantitySelector(
-          quantity: quantity,
-          onDecrement: onDecrement,
-          onIncrement: onIncrement,
-        ),
-        const SizedBox(height: 28),
-        FilledButton(
-          onPressed: onAddToBag,
-          style: FilledButton.styleFrom(
-            backgroundColor: Colors.black,
-            foregroundColor: Colors.white,
-            side: const BorderSide(color: Colors.black),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          child: const Text('Add to Bag'),
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton(
-          onPressed: onViewBag,
-          style: OutlinedButton.styleFrom(
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
-            side: const BorderSide(color: Colors.black),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          child: const Text('View Bag'),
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton(
-          onPressed: onWriteReview,
-          style: OutlinedButton.styleFrom(
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
-            side: const BorderSide(color: Colors.black),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          child: const Text('Write a review'),
-        ),
-        const SizedBox(height: 28),
-        Wrap(
-          spacing: 24,
-          runSpacing: 16,
-          children: [
-            _MetaStat(
-              label: 'Shipping',
-              value: 'Owner confirms delivery by phone',
-            ),
-            _MetaStat(label: 'Bag', value: 'Private to this browser or device'),
-          ],
-        ),
+        ], classes: 'success-state modal-shell', events: {'click': (_) {}}),
       ],
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(36),
-      ),
-      child: isDesktop
-          ? Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  flex: 6,
-                  child: ProductImageGallery(
-                    key: ValueKey(product.id),
-                    product: product,
-                    height: 560,
-                  ),
-                ),
-                const SizedBox(width: 28),
-                Expanded(
-                  flex: 5,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 18,
-                    ),
-                    child: infoPanel,
-                  ),
-                ),
-              ],
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ProductImageGallery(
-                  key: ValueKey(product.id),
-                  product: product,
-                  height: 340,
-                ),
-                const SizedBox(height: 24),
-                infoPanel,
-              ],
-            ),
-    );
-  }
-}
-
-class _ReviewPill extends StatelessWidget {
-  const _ReviewPill({required this.reviewsAsync});
-
-  final AsyncValue<List<ProductReview>> reviewsAsync;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return reviewsAsync.when(
-      data: (reviews) {
-        if (reviews.isEmpty) {
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.star_outline_rounded,
-                color: Color(0xFFF2B100),
-                size: 18,
-              ),
-              const SizedBox(width: 6),
-              Text('No reviews yet', style: theme.textTheme.bodySmall),
-            ],
-          );
-        }
-
-        final average = reviews
-                .map((review) => review.rating)
-                .reduce((sum, rating) => sum + rating) /
-            reviews.length;
-
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.star_rounded,
-              color: Color(0xFFF2B100),
-              size: 18,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              '${average.toStringAsFixed(1)} (${reviews.length} review${reviews.length == 1 ? '' : 's'})',
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-        );
-      },
-      loading: () => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          const SizedBox(width: 8),
-          Text('Loading reviews', style: theme.textTheme.bodySmall),
-        ],
-      ),
-      error: (_, __) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.star_outline_rounded,
-            color: Color(0xFFF2B100),
-            size: 18,
-          ),
-          const SizedBox(width: 6),
-          Text('Reviews unavailable', style: theme.textTheme.bodySmall),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetaStat extends StatelessWidget {
-  const _MetaStat({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SizedBox(
-      width: 220,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label.toUpperCase(),
-            style: theme.textTheme.bodySmall?.copyWith(
-              letterSpacing: 0.8,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(value, style: theme.textTheme.titleMedium),
-        ],
-      ),
-    );
-  }
-}
-
-class _CenteredState extends StatelessWidget {
-  const _CenteredState({
-    required this.title,
-    required this.message,
-    this.showLoader = false,
-  });
-
-  final String title;
-  final String message;
-  final bool showLoader;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (showLoader) ...[
-                    const CircularProgressIndicator(),
-                    const SizedBox(height: 20),
-                  ],
-                  Text(title, style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: 12),
-                  Text(
-                    message,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+      classes: 'modal-overlay',
+      events: {'click': (_) => setState(() => _modal = _Modal.none)},
     );
   }
 }

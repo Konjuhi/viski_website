@@ -1,221 +1,175 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:html' as html;
 
+import 'package:jaspr/jaspr.dart';
+import 'package:jaspr/dom.dart';
+
+import '../../../../core/utils/form_validators.dart';
+import '../../../../services/supabase_service.dart';
 import '../../../products/domain/product.dart';
+import '../../../reviews/data/supabase_review_repository.dart';
 import '../../domain/create_product_review_request.dart';
-import '../providers/review_providers.dart';
 
-class ReviewFormSheet extends ConsumerStatefulWidget {
-  const ReviewFormSheet({super.key, required this.product});
+class ReviewFormSheet extends StatefulComponent {
+  const ReviewFormSheet({
+    super.key,
+    required this.product,
+    required this.onClose,
+    required this.onSuccess,
+  });
 
   final Product product;
+  final void Function() onClose;
+  final void Function() onSuccess;
 
   @override
-  ConsumerState<ReviewFormSheet> createState() => _ReviewFormSheetState();
+  State<ReviewFormSheet> createState() => _ReviewFormSheetState();
 }
 
-class _ReviewFormSheetState extends ConsumerState<ReviewFormSheet> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _nameController;
-  late final TextEditingController _reviewController;
+class _ReviewFormSheetState extends State<ReviewFormSheet> {
   int _rating = 5;
+  String _name = '';
+  String _reviewText = '';
+  String? _nameError;
+  String? _reviewError;
+  bool _submitting = false;
+  String? _submitError;
 
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController();
-    _reviewController = TextEditingController();
+  bool _validate() {
+    final errors = validateReviewForm(name: _name, reviewText: _reviewText);
+    setState(() {
+      _nameError = errors.name;
+      _reviewError = errors.reviewText;
+    });
+    return errors.isValid;
   }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _reviewController.dispose();
-    super.dispose();
-  }
-
-  bool _isSubmitting = false;
 
   Future<void> _submit() async {
-    final isValid = _formKey.currentState?.validate() ?? false;
-    if (!isValid) {
-      return;
+    if (!_validate()) return;
+    setState(() {
+      _submitting = true;
+      _submitError = null;
+    });
+    try {
+      final repo = SupabaseReviewRepository(SupabaseService.client);
+      await repo.submitReview(
+        CreateProductReviewRequest(
+          productId: component.product.id,
+          customerName: _name.trim(),
+          rating: _rating,
+          reviewText: _reviewText.trim(),
+        ),
+      );
+      component.onSuccess();
+    } catch (e) {
+      setState(() {
+        _submitting = false;
+        _submitError = e.toString();
+      });
     }
-
-    setState(() => _isSubmitting = true);
-
-    await ref
-        .read(reviewSubmissionControllerProvider.notifier)
-        .submitReview(
-          CreateProductReviewRequest(
-            productId: widget.product.id,
-            customerName: _nameController.text.trim(),
-            rating: _rating,
-            reviewText: _reviewController.text.trim(),
-          ),
-        );
-
-    if (!mounted) return;
-
-    final state = ref.read(reviewSubmissionControllerProvider);
-    state.whenOrNull(
-      data: (_) => Navigator.of(context).pop(true),
-      error: (error, _) {
-        setState(() => _isSubmitting = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Review failed: $error')));
-      },
-    );
   }
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isSubmitting = _isSubmitting;
-
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.viewInsetsOf(context).bottom,
+  Component build(BuildContext context) {
+    return div(
+      [
+        div([
+          p([Component.text('Write a review')], classes: 'modal-title'),
+          button(
+            [Component.text('✕')],
+            classes: 'modal-close',
+            events: {'click': (_) => component.onClose()},
+          ),
+        ], classes: 'modal-header-row'),
+        p(
+          [Component.text(component.product.name)],
+          classes: 'product-description',
+          styles: Styles(raw: {'margin-bottom': '8px'}),
         ),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Write a review',
-                      style: theme.textTheme.headlineMedium,
-                    ),
-                  ),
-                  _CloseButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                widget.product.name,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF6F3EC),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Your rating', style: theme.textTheme.titleMedium),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        for (var index = 1; index <= 5; index++)
-                          InkWell(
-                            borderRadius: BorderRadius.circular(999),
-                            onTap: () => setState(() => _rating = index),
-                            child: Padding(
-                              padding: const EdgeInsets.all(2),
-                              child: Icon(
-                                index <= _rating
-                                    ? Icons.star_rounded
-                                    : Icons.star_outline_rounded,
-                                color: const Color(0xFFF2B100),
-                                size: 30,
-                              ),
-                            ),
-                          ),
-                      ],
+        div(
+          [
+            p(
+              [Component.text('Your rating')],
+              classes: 'form-label',
+              styles: Styles(raw: {'margin-bottom': '8px'}),
+            ),
+            div(
+              List.generate(5, (i) {
+                final starNum = i + 1;
+                return button(
+                  [
+                    span(
+                      [Component.text('★')],
+                      classes: starNum <= _rating ? 'star-filled' : 'star-empty',
                     ),
                   ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _nameController,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(labelText: 'Your name'),
-                validator: (value) {
-                  final text = value?.trim() ?? '';
-                  if (text.length < 2) {
-                    return 'Enter your name.';
-                  }
-                  return null;
+                  events: {'click': (_) => setState(() => _rating = starNum)},
+                );
+              }),
+              classes: 'star-selector',
+            ),
+          ],
+          styles: Styles(raw: {'margin-bottom': '16px'}),
+        ),
+        div(
+          [
+            label([Component.text('Your name')], classes: 'form-label'),
+            input(
+              type: InputType.text,
+              value: _name,
+              attributes: const {'placeholder': 'Your name'},
+              classes: 'form-input${_nameError != null ? ' error' : ''}',
+              events: {
+                'input': (e) {
+                  final v = (e.target as html.InputElement).value ?? '';
+                  setState(() {
+                    _name = v;
+                    if (_nameError != null) _nameError = null;
+                  });
                 },
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _reviewController,
-                maxLines: 4,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(
-                  labelText: 'Your review',
-                  alignLabelWithHint: true,
-                ),
-                validator: (value) {
-                  final text = value?.trim() ?? '';
-                  if (text.length < 6) {
-                    return 'Write a short review.';
-                  }
-                  return null;
+              },
+            ),
+            if (_nameError != null)
+              span([Component.text(_nameError!)], classes: 'form-error'),
+          ],
+          classes: 'form-group',
+        ),
+        div(
+          [
+            label([Component.text('Your review')], classes: 'form-label'),
+            textarea(
+              [Component.text(_reviewText)],
+              placeholder: 'Share your thoughts…',
+              rows: 4,
+              classes: 'form-input${_reviewError != null ? ' error' : ''}',
+              events: {
+                'input': (e) {
+                  final v = (e.target as html.TextAreaElement).value ?? '';
+                  setState(() {
+                    _reviewText = v;
+                    if (_reviewError != null) _reviewError = null;
+                  });
                 },
-              ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: isSubmitting ? null : _submit,
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                child: Text(
-                  isSubmitting ? 'Submitting review...' : 'Submit review',
-                ),
-              ),
-            ],
+              },
+            ),
+            if (_reviewError != null)
+              span([Component.text(_reviewError!)], classes: 'form-error'),
+          ],
+          classes: 'form-group',
+        ),
+        if (_submitError != null)
+          p(
+            [Component.text('Error: $_submitError')],
+            classes: 'form-error',
+            styles: Styles(raw: {'margin-bottom': '12px'}),
           ),
+        button(
+          [Component.text(_submitting ? 'Submitting…' : 'Submit review')],
+          classes: 'btn-primary',
+          events: {'click': (_) => _submit()},
         ),
-      ),
-    );
-  }
-}
-
-class _CloseButton extends StatelessWidget {
-  const _CloseButton({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onPressed,
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.92),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.black),
-        ),
-        child: const Icon(Icons.close, size: 20, color: Colors.black),
-      ),
+      ],
+      classes: 'modal-shell',
+      events: {'click': (e) => e.stopPropagation()},
     );
   }
 }

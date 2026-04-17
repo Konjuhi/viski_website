@@ -1,208 +1,88 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:jaspr/jaspr.dart';
+import 'package:jaspr/dom.dart';
 
 import '../../../products/domain/product.dart';
 import '../../domain/product_review.dart';
-import '../providers/review_providers.dart';
 
-class ProductReviewsSection extends ConsumerWidget {
+class ProductReviewsSection extends StatelessComponent {
   const ProductReviewsSection({
     super.key,
     required this.product,
-    required this.isDesktop,
+    required this.reviews,
     required this.onWriteReview,
   });
 
   final Product product;
-  final bool isDesktop;
-  final VoidCallback onWriteReview;
+  final List<ProductReview> reviews;
+  final void Function() onWriteReview;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final reviewsAsync = ref.watch(productReviewsProvider(product.id));
+  Component build(BuildContext context) {
+    final avg = reviews.isNotEmpty
+        ? (reviews.map((r) => r.rating).reduce((a, b) => a + b) /
+                reviews.length)
+            .toStringAsFixed(1)
+        : null;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Customer reviews',
-                style: theme.textTheme.headlineMedium,
-              ),
-            ),
-            SizedBox(
-              width: isDesktop ? 180 : 150,
-              child: FilledButton(
-                onPressed: onWriteReview,
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                child: const Text('Write a review'),
-              ),
-            ),
+    return section([
+      div([
+        h2([Component.text('Customer reviews')], classes: 'section-title'),
+        button(
+          [Component.text('Write a review')],
+          classes: 'btn-secondary',
+          styles: Styles(raw: {'width': 'auto', 'padding': '10px 20px'}),
+          events: {'click': (_) => onWriteReview()},
+        ),
+      ], classes: 'reviews-header'),
+      if (reviews.isNotEmpty)
+        div([
+          span([Component.text('★ $avg')], classes: 'reviews-avg'),
+          span(
+            [Component.text('${reviews.length} review${reviews.length == 1 ? '' : 's'}')],
+            classes: 'reviews-count',
+          ),
+        ], classes: 'reviews-summary'),
+      if (reviews.isEmpty)
+        p(
+          [Component.text('No reviews yet. Be the first to share one.')],
+          classes: 'reviews-empty',
+        )
+      else
+        div(reviews.map(_reviewCard).toList(), classes: 'review-list'),
+    ], classes: 'reviews-section');
+  }
+
+  Component _reviewCard(ProductReview review) {
+    final stars = List.generate(
+      5,
+      (i) => span(
+        [Component.text('★')],
+        classes: i < review.rating ? 'star-filled' : 'star-empty',
+      ),
+    );
+
+    return div(
+      [
+        div(
+          [
+            span([Component.text(review.customerName)], classes: 'review-author'),
+            span([Component.text(_formatDate(review.createdAt))], classes: 'review-date'),
           ],
+          classes: 'review-card-header',
         ),
-        const SizedBox(height: 16),
-        reviewsAsync.when(
-          data: (reviews) {
-            final average = reviews.isEmpty
-                ? 0.0
-                : reviews
-                        .map((review) => review.rating)
-                        .reduce((sum, rating) => sum + rating) /
-                    reviews.length;
-
-            return Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.78),
-                borderRadius: BorderRadius.circular(32),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (reviews.isNotEmpty) ...[
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.star_rounded,
-                          color: Color(0xFFF2B100),
-                          size: 24,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          average.toStringAsFixed(1),
-                          style: theme.textTheme.headlineMedium,
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          '${reviews.length} review${reviews.length == 1 ? '' : 's'}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                  if (reviews.isEmpty)
-                    Text(
-                      'No reviews yet. Be the first customer to share one.',
-                      style: theme.textTheme.bodyLarge,
-                    )
-                  else
-                    for (var index = 0; index < reviews.length; index++) ...[
-                      _ReviewCard(review: reviews[index]),
-                      if (index != reviews.length - 1)
-                        const SizedBox(height: 14),
-                    ],
-                ],
-              ),
-            );
-          },
-          loading: () => Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.78),
-              borderRadius: BorderRadius.circular(32),
-            ),
-            child: const Center(child: CircularProgressIndicator()),
-          ),
-          error: (error, _) => Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.78),
-              borderRadius: BorderRadius.circular(32),
-            ),
-            child: Text('Unable to load reviews: $error'),
-          ),
-        ),
+        div(stars, classes: 'stars'),
+        p([Component.text(review.reviewText)], classes: 'review-text'),
       ],
+      classes: 'review-card',
     );
   }
-}
 
-class _ReviewCard extends StatelessWidget {
-  const _ReviewCard({required this.review});
-
-  final ProductReview review;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF6F3EC),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  review.customerName,
-                  style: theme.textTheme.titleLarge,
-                ),
-              ),
-              Text(
-                _formatReviewDate(review.createdAt),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              for (var index = 1; index <= 5; index++)
-                Icon(
-                  index <= review.rating
-                      ? Icons.star_rounded
-                      : Icons.star_outline_rounded,
-                  color: const Color(0xFFF2B100),
-                  size: 18,
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(review.reviewText, style: theme.textTheme.bodyLarge),
-        ],
-      ),
-    );
+  String _formatDate(DateTime dt) {
+    final local = dt.toLocal();
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[local.month - 1]} ${local.day}, ${local.year}';
   }
-}
-
-String _formatReviewDate(DateTime value) {
-  final local = value.toLocal();
-  final month = switch (local.month) {
-    1 => 'Jan',
-    2 => 'Feb',
-    3 => 'Mar',
-    4 => 'Apr',
-    5 => 'May',
-    6 => 'Jun',
-    7 => 'Jul',
-    8 => 'Aug',
-    9 => 'Sep',
-    10 => 'Oct',
-    11 => 'Nov',
-    _ => 'Dec',
-  };
-  return '$month ${local.day}, ${local.year}';
 }
