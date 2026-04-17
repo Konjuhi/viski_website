@@ -1,4 +1,4 @@
-name: Deploy Flutter Web to GitHub Pages
+name: Deploy Jaspr Web to GitHub Pages
 
 on:
   push:
@@ -22,20 +22,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
         with:
-          channel: stable
-          cache: true
+          sdk: stable
 
       - name: Get dependencies
-        run: flutter pub get
+        run: dart pub get
+
+      - name: Activate jaspr CLI
+        run: dart pub global activate jaspr_cli 0.22.4
 
       - name: Run tests
-        run: flutter test
+        run: dart test test/core/ test/features/
 
       - name: Build web app
-        run: flutter build web --release --base-href /viski_website/
+        run: dart pub global run jaspr_cli build
+
+      - name: Set base href for GitHub Pages
+        run: sed -i 's|<head>|<head><base href="/viski_website/">|' build/jaspr/index.html
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -43,7 +48,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: build/web
+          path: build/jaspr
 
   deploy:
     needs: build
